@@ -40,7 +40,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * <strong>Internal class, do not use directly.</strong>
- * 
+ * <p>
  * An active open data connection, used for transfering data over the data
  * connection.
  *
@@ -49,11 +49,11 @@ import org.slf4j.LoggerFactory;
 public class IODataConnection implements DataConnection {
 
     private final Logger LOG = LoggerFactory
-    .getLogger(IODataConnection.class);
+            .getLogger(IODataConnection.class);
 
-    
+
     private static final byte[] EOL = System.getProperty("line.separator").getBytes();
-    
+
     private final FtpIoSession session;
 
     private final Socket socket;
@@ -61,7 +61,7 @@ public class IODataConnection implements DataConnection {
     private final ServerDataConnectionFactory factory;
 
     public IODataConnection(final Socket socket, final FtpIoSession session,
-            final ServerDataConnectionFactory factory) {
+                            final ServerDataConnectionFactory factory) {
         this.session = session;
         this.socket = socket;
         this.factory = factory;
@@ -122,18 +122,10 @@ public class IODataConnection implements DataConnection {
      * OutputStream)
      */
     public final long transferFromClient(FtpSession session,
-            final OutputStream out) throws IOException {
-        TransferRateRequest transferRateRequest = new TransferRateRequest();
-        transferRateRequest = (TransferRateRequest) session.getUser()
-                .authorize(transferRateRequest);
-        int maxRate = 0;
-        if (transferRateRequest != null) {
-            maxRate = transferRateRequest.getMaxUploadRate();
-        }
-
+                                         final OutputStream out) throws IOException {
         InputStream is = getDataInputStream();
         try {
-            return transfer(session, false, is, out, maxRate);
+            return transfer(session, false, is, out);
         } finally {
             IoUtils.close(is);
         }
@@ -148,17 +140,9 @@ public class IODataConnection implements DataConnection {
      */
     public final long transferToClient(FtpSession session, final InputStream in)
             throws IOException {
-        TransferRateRequest transferRateRequest = new TransferRateRequest();
-        transferRateRequest = (TransferRateRequest) session.getUser()
-                .authorize(transferRateRequest);
-        int maxRate = 0;
-        if (transferRateRequest != null) {
-            maxRate = transferRateRequest.getMaxDownloadRate();
-        }
-
         OutputStream out = getDataOutputStream();
         try {
-            return transfer(session, true, in, out, maxRate);
+            return transfer(session, true, in, out);
         } finally {
             IoUtils.close(out);
         }
@@ -194,7 +178,7 @@ public class IODataConnection implements DataConnection {
     }
 
     private final long transfer(FtpSession session, boolean isWrite,
-            final InputStream in, final OutputStream out, final int maxRate)
+                                final InputStream in, final OutputStream out)
             throws IOException {
         long transferredSize = 0L;
 
@@ -216,7 +200,18 @@ public class IODataConnection implements DataConnection {
 
             byte lastByte = 0;
             while (true) {
-
+                /** If the speed limit changes during transmission, it will take effect immediately */
+                TransferRateRequest transferRateRequest = new TransferRateRequest();
+                transferRateRequest = (TransferRateRequest) session.getUser()
+                        .authorize(transferRateRequest);
+                int maxRate = 0;
+                if (transferRateRequest != null) {
+                    if (isWrite) {
+                        maxRate = transferRateRequest.getMaxUploadRate();
+                    } else {
+                        maxRate = transferRateRequest.getMaxDownloadRate();
+                    }
+                }
                 // if current rate exceeds the max rate, sleep for 50ms
                 // and again check the current transfer rate
                 if (maxRate > 0) {
@@ -260,22 +255,22 @@ public class IODataConnection implements DataConnection {
                 if (isAscii) {
                     for (int i = 0; i < count; ++i) {
                         byte b = buff[i];
-                        if(isWrite) {
+                        if (isWrite) {
                             if (b == '\n' && lastByte != '\r') {
                                 bos.write('\r');
                             }
-    
+
                             bos.write(b);
                         } else {
-                            if(b == '\n') {
+                            if (b == '\n') {
                                 // for reads, we should always get \r\n
                                 // so what we do here is to ignore \n bytes 
                                 // and on \r dump the system local line ending.
                                 // Some clients won't transform new lines into \r\n so we make sure we don't delete new lines
-                                if (lastByte != '\r'){
+                                if (lastByte != '\r') {
                                     bos.write(EOL);
                                 }
-                            } else if(b == '\r') {
+                            } else if (b == '\r') {
                                 bos.write(EOL);
                             } else {
                                 // not a line ending, just output
@@ -293,11 +288,11 @@ public class IODataConnection implements DataConnection {
 
                 notifyObserver();
             }
-        } catch(IOException e) {
+        } catch (IOException e) {
             LOG.warn("Exception during data transfer, closing data connection socket", e);
             factory.closeDataConnection();
             throw e;
-        } catch(RuntimeException e) {
+        } catch (RuntimeException e) {
             LOG.warn("Exception during data transfer, closing data connection socket", e);
             factory.closeDataConnection();
             throw e;
